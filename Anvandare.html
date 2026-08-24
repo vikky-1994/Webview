@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#121212">
+    <title>Sändare – Smart Övervakning & Dataspallägen</title>
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #ffffff;
+            --text-secondary: #aaaaaa;
+            --accent-user: #007bff;
+            --danger-color: #dc3545;
+            --success-color: #28a745;
+            --warning-color: #ffc107;
+            --purple-color: #9c27b0;
+            --border-color: rgba(255, 255, 255, 0.1);
+            --border-radius: 12px;
+        }
+
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg-color: #f8f9fa;
+                --card-bg: #ffffff;
+                --text-color: #212529;
+                --text-secondary: #6c757d;
+                --border-color: rgba(0, 0, 0, 0.1);
+            }
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 16px;
+        }
+
+        .container { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 14px; }
+
+        header { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .back-link { color: var(--accent-user); text-decoration: none; font-size: 0.9rem; font-weight: 600; }
+        
+        .badges-wrapper { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            transition: background-color 0.3s ease;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background-color: #000;
+            border-radius: var(--border-radius);
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+
+        video { width: 100%; height: 100%; object-fit: cover; }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .full-width { grid-column: span 2; }
+
+        button, select {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background-color: var(--card-bg);
+            color: var(--text-color);
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        button:active { opacity: 0.8; }
+        .btn-primary { background-color: var(--accent-user); color: #fff; border: none; }
+        .btn-success { background-color: var(--success-color); color: #fff; border: none; }
+        .btn-warning { background-color: var(--warning-color); color: #000; border: none; }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+            padding: 16px;
+        }
+        .modal-content {
+            background-color: var(--card-bg);
+            padding: 20px;
+            border-radius: var(--border-radius);
+            width: 100%;
+            max-width: 480px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            border: 1px solid var(--border-color);
+        }
+        .setting-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.88rem;
+        }
+        .setting-row label { flex: 1; }
+        .setting-row input[type="checkbox"] { width: 20px; height: 20px; }
+
+        #qr-container {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            background-color: #fff;
+            padding: 16px;
+            border-radius: var(--border-radius);
+            margin-top: 8px;
+        }
+        #qrcode { margin-top: 8px; }
+
+        .debug-console {
+            background-color: #000;
+            color: #00ff00;
+            font-family: monospace;
+            font-size: 0.75rem;
+            padding: 12px;
+            border-radius: 8px;
+            height: 120px;
+            overflow-y: auto;
+            border: 1px solid #333;
+        }
+        .log-error { color: #ff4444; }
+        .log-warn { color: #ffbb33; }
+        .log-motion { color: #00ffff; }
+        .log-status { color: #77ff77; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <a href="index.html" class="back-link">← Startsida</a>
+            <div class="badges-wrapper">
+                <span id="pin-display" class="status-badge" style="background: var(--accent-user); color: #fff;">PIN: ----- (05:00)</span>
+                <span id="status" class="status-badge">Kopplar upp...</span>
+            </div>
+        </header>
+
+        <div class="video-container">
+            <video id="local-video" autoplay playsinline muted></video>
+            <audio id="remote-audio" autoplay></audio>
+        </div>
+
+        <div class="badges-wrapper">
+            <span id="battery-badge" class="status-badge">Batteri: --%</span>
+            <span id="net-badge" class="status-badge">Nät: --</span>
+            <span id="data-saver-badge" class="status-badge">Data: Normal</span>
+            <span id="motion-badge" class="status-badge">Rörelse: AV</span>
+        </div>
+
+        <div class="controls-grid">
+            <button id="btn-open-settings" class="btn-warning full-width">⚙️ Inställningar & Datasparläge</button>
+            <button id="btn-toggle-cam">Växla Kamera</button>
+            <button id="btn-toggle-motion" class="btn-primary">Rörelsedetektor</button>
+            <button id="btn-renew-pin" class="btn-warning">🔑 Ny PIN</button>
+            <button id="btn-toggle-qr">QR-Kod för anslutning</button>
+        </div>
+
+        <div id="qr-container">
+            <span style="color: #000; font-weight: 600; font-size: 0.9rem;">Skanna för att ansluta som mottagare:</span>
+            <div id="qrcode"></div>
+        </div>
+
+        <div class="debug-console">
+            <ul id="debug-log" style="list-style: none;"></ul>
+        </div>
+    </div>
+
+    <!-- Modal för Inställningar -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content">
+            <h3>⚙️ Inställningar & Datasparande</h3>
+            <hr style="border: 0; border-top: 1px solid var(--border-color);">
+
+            <div class="setting-row">
+                <label for="bitrate-select">Bandbreddsgräns (Bitrate):</label>
+                <select id="bitrate-select" style="width: auto;">
+                    <option value="0">Obegränsad (Standard)</option>
+                    <option value="500000">Medium (500 kbps)</option>
+                    <option value="200000" selected>Låg (200 kbps - Dataspard)</option>
+                    <option value="80000">Extremt låg (80 kbps)</option>
+                </select>
+            </div>
+
+            <div class="setting-row">
+                <label for="chk-motion-only">Streama ENBART vid upptäckt rörelse</label>
+                <input type="checkbox" id="chk-motion-only">
+            </div>
+
+            <div class="setting-row">
+                <label for="chk-snapshot-mode">Snapshot-läge (Skicka bildrutor istället för video)</label>
+                <input type="checkbox" id="chk-snapshot-mode">
+            </div>
+
+            <div class="setting-row">
+                <label for="snapshot-interval">Bildintervall (i sekunder):</label>
+                <select id="snapshot-interval" style="width: auto;">
+                    <option value="1">Varje sekund (1s)</option>
+                    <option value="3" selected>Vart 3:e sekund</option>
+                    <option value="5">Vart 5:e sekund</option>
+                    <option value="10">Vart 10:e sekund</option>
+                </select>
+            </div>
+
+            <div class="setting-row">
+                <label for="chk-audio-only">Endast ljud (Stäng av video helt)</label>
+                <input type="checkbox" id="chk-audio-only">
+            </div>
+
+            <div class="setting-row">
+                <label for="res-select">Upplösning:</label>
+                <select id="res-select" style="width: auto;">
+                    <option value="360" selected>360p (Sparar data)</option>
+                    <option value="720">720p (HD)</option>
+                    <option value="1080">1080p (Full HD)</option>
+                </select>
+            </div>
+
+            <div class="setting-row">
+                <label for="fps-select">Bildfrekvens (FPS):</label>
+                <select id="fps-select" style="width: auto;">
+                    <option value="1">1 FPS</option>
+                    <option value="5">5 FPS</option>
+                    <option value="10" selected>10 FPS</option>
+                    <option value="15">15 FPS</option>
+                    <option value="30">30 FPS</option>
+                </select>
+            </div>
+
+            <button id="btn-close-settings" class="btn-success">Spara & Stäng</button>
+        </div>
+    </div>
+
+    <canvas id="motion-canvas" style="display:none;"></canvas>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomId = urlParams.get('room') || 'standard-rum';
+        const peerId = `stream-host-${roomId}`;
+
+        const debugLog = document.getElementById('debug-log');
+        const statusBadge = document.getElementById('status');
+        const pinDisplay = document.getElementById('pin-display');
+        const motionBadge = document.getElementById('motion-badge');
+        const batteryBadge = document.getElementById('battery-badge');
+        const netBadge = document.getElementById('net-badge');
+        const dataSaverBadge = document.getElementById('data-saver-badge');
+
+        const videoElement = document.getElementById('local-video');
+        const remoteAudio = document.getElementById('remote-audio');
+
+        let currentMaxBitrate = 200000;
+        let isMotionOnlyStream = false;
+        let isSnapshotMode = false;
+        let snapshotIntervalSec = 3;
+        let isAudioOnly = false;
+        let snapshotTimer = null;
+
+        let secretPin = '';
+        let pinTimer = null;
+        const PIN_TIMEOUT_SECONDS = 300; 
+        let pinTimeLeft = PIN_TIMEOUT_SECONDS;
+
+        let localStream = null;
+        let peer = null;
+        let activeCalls = [];
+        let activeDataConns = [];
+        let facingMode = 'environment';
+        let targetFps = 10;
+        let targetHeight = 360;
+
+        function log(msg, type = 'info') {
+            const li = document.createElement('li');
+            li.textContent = `[${new Date().toLocaleTimeString('sv-SE')}] ${msg}`;
+            if (type === 'error') li.className = 'log-error';
+            if (type === 'warn') li.className = 'log-warn';
+            if (type === 'motion') li.className = 'log-motion';
+            if (type === 'status') li.className = 'log-status';
+            debugLog.appendChild(li);
+            debugLog.scrollTop = debugLog.scrollHeight;
+        }
+
+        function generateNewPin() {
+            secretPin = Math.floor(10000 + Math.random() * 90000).toString();
+            pinTimeLeft = PIN_TIMEOUT_SECONDS;
+            updatePinDisplay();
+            generateQR();
+            log(`Ny PIN genererad: ${secretPin}`, 'status');
+        }
+
+        function startPinTimer() {
+            if (pinTimer) clearInterval(pinTimer);
+            pinTimer = setInterval(() => {
+                pinTimeLeft--;
+                if (pinTimeLeft <= 0) generateNewPin();
+                else updatePinDisplay();
+            }, 1000);
+        }
+
+        function updatePinDisplay() {
+            const mins = Math.floor(pinTimeLeft / 60);
+            const secs = pinTimeLeft % 60;
+            const timeStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            pinDisplay.textContent = `PIN: ${secretPin} (${timeStr})`;
+            pinDisplay.style.backgroundColor = (pinTimeLeft <= 30) ? 'var(--danger-color)' : 'var(--accent-user)';
+        }
+
+        document.getElementById('btn-renew-pin').addEventListener('click', generateNewPin);
+
+        function generateQR() {
+            const qrContainer = document.getElementById('qrcode');
+            qrContainer.innerHTML = '';
+            const receiverUrl = `${window.location.origin}${window.location.pathname.replace('Anvandare.html', 'Mottagare.html')}?room=${roomId}`;
+            new QRCode(qrContainer, { text: receiverUrl, width: 128, height: 128 });
+        }
+
+        document.getElementById('btn-toggle-qr').addEventListener('click', () => {
+            const container = document.getElementById('qr-container');
+            container.style.display = container.style.display === 'flex' ? 'none' : 'flex';
+        });
+
+        function applyBitrateLimit() {
+            activeCalls.forEach(call => {
+                if (!call.peerConnection) return;
+                const senders = call.peerConnection.getSenders();
+                const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+
+                if (videoSender) {
+                    const parameters = videoSender.getParameters();
+                    if (!parameters.encodings) parameters.encodings = [{}];
+
+                    if (currentMaxBitrate > 0) {
+                        parameters.encodings[0].maxBitrate = currentMaxBitrate;
+                    } else {
+                        delete parameters.encodings[0].maxBitrate;
+                    }
+                    videoSender.setParameters(parameters).catch(e => log(`Bitrate-fel: ${e.message}`, 'error'));
+                }
+            });
+        }
+
+        function setVideoTrackEnabled(enabled) {
+            if (!localStream) return;
+            localStream.getVideoTracks().forEach(t => t.enabled = enabled);
+        }
+
+        function startSnapshotLoop() {
+            stopSnapshotLoop();
+            if (!isSnapshotMode) return;
+            
+            setVideoTrackEnabled(false);
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            snapshotTimer = setInterval(() => {
+                if (!videoElement.videoWidth || activeDataConns.length === 0) return;
+                canvas.width = 480;
+                canvas.height = 270;
+                ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                
+                const imageData = canvas.toDataURL('image/jpeg', 0.5);
+                activeDataConns.forEach(conn => {
+                    if (conn.open) conn.send({ type: 'snapshot-frame', image: imageData });
+                });
+            }, snapshotIntervalSec * 1000);
+        }
+
+        function stopSnapshotLoop() {
+            if (snapshotTimer) clearInterval(snapshotTimer);
+            snapshotTimer = null;
+        }
+
+        const settingsModal = document.getElementById('settings-modal');
+        document.getElementById('btn-open-settings').addEventListener('click', () => settingsModal.style.display = 'flex');
+        document.getElementById('btn-close-settings').addEventListener('click', () => {
+            settingsModal.style.display = 'none';
+
+            currentMaxBitrate = parseInt(document.getElementById('bitrate-select').value);
+            isMotionOnlyStream = document.getElementById('chk-motion-only').checked;
+            isSnapshotMode = document.getElementById('chk-snapshot-mode').checked;
+            snapshotIntervalSec = parseInt(document.getElementById('snapshot-interval').value);
+            isAudioOnly = document.getElementById('chk-audio-only').checked;
+            targetHeight = parseInt(document.getElementById('res-select').value);
+            targetFps = parseInt(document.getElementById('fps-select').value);
+
+            if (isAudioOnly) {
+                setVideoTrackEnabled(false);
+                dataSaverBadge.textContent = 'Data: Bara ljud';
+            } else if (isSnapshotMode) {
+                startSnapshotLoop();
+                dataSaverBadge.textContent = 'Data: Snapshots';
+            } else if (isMotionOnlyStream) {
+                setVideoTrackEnabled(false);
+                dataSaverBadge.textContent = 'Data: Rörelseström';
+            } else {
+                stopSnapshotLoop();
+                setVideoTrackEnabled(true);
+                applyBitrateLimit();
+                dataSaverBadge.textContent = currentMaxBitrate > 0 ? `Data: ${currentMaxBitrate/1000}k` : 'Data: Max';
+            }
+            
+            startCamera();
+        });
+
+        async function startCamera() {
+            try {
+                if (localStream) {
+                    localStream.getTracks().forEach(track => track.stop());
+                }
+
+                log('Initierar kamera och mikrofon...');
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: facingMode,
+                        height: { ideal: targetHeight },
+                        frameRate: { max: targetFps }
+                    },
+                    audio: true
+                });
+
+                videoElement.srcObject = localStream;
+                log('Kamera startad framgångsrikt.', 'status');
+
+                activeCalls.forEach(call => {
+                    const senders = call.peerConnection.getSenders();
+                    localStream.getTracks().forEach(track => {
+                        const sender = senders.find(s => s.track && s.track.kind === track.kind);
+                        if (sender) sender.replaceTrack(track);
+                    });
+                });
+
+            } catch (err) {
+                log(`Kamerafel: ${err.message}. Kontrollera behörigheter!`, 'error');
+                statusBadge.textContent = 'Kamerafel';
+                statusBadge.style.backgroundColor = 'var(--danger-color)';
+            }
+        }
+
+        document.getElementById('btn-toggle-cam').addEventListener('click', () => {
+            facingMode = (facingMode === 'user') ? 'environment' : 'user';
+            log(`Växlar kamera till: ${facingMode}`);
+            startCamera();
+        });
+
+        function initPeer() {
+            log(`Kopplar upp mot PeerJS med ID: ${peerId}...`);
+            peer = new Peer(peerId);
+
+            peer.on('open', (id) => {
+                log(`Sändare redo! ID: ${id}`, 'status');
+                statusBadge.textContent = 'Redo';
+                statusBadge.style.backgroundColor = 'var(--success-color)';
+            });
+
+            peer.on('connection', (conn) => {
+                log(`Inkommande dataförfrågan från mottagare...`);
+                activeDataConns.push(conn);
+
+                conn.on('data', (data) => {
+                    if (data && data.type === 'auth') {
+                        if (data.pin === secretPin) {
+                            log('Mottagare angav RÄTT PIN-kod.', 'status');
+                            conn.send({ type: 'auth-result', success: true });
+                        } else {
+  
