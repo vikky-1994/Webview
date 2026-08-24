@@ -1,5 +1,5 @@
-// sw.js - Uppdaterad till v4 med stöd för de senaste ändringarna
-const CACHE_NAME = 'webview-v4'; 
+// sw.js - Uppdaterad till v5 med senaste ändringarna
+const CACHE_NAME = 'webview-v5'; 
 const ASSETS = [
     './',
     './index.html',
@@ -17,7 +17,7 @@ self.addEventListener('install', (event) => {
     self.skipWaiting();
 });
 
-// 2. Ta bort alla gamla cacher (t.ex. webview-v3) vid aktivering
+// 2. Ta bort alla gamla cacher (t.ex. webview-v4) vid aktivering
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys().then((cacheNames) => {
