@@ -1,0 +1,303 @@
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomId = urlParams.get('room') || 'standard-rum';
+        const peerId = `stream-host-${roomId}`;
+
+        const debugLog = document.getElementById('debug-log');
+        const statusBadge = document.getElementById('status');
+        const pinDisplay = document.getElementById('pin-display');
+        const motionBadge = document.getElementById('motion-badge');
+        const batteryBadge = document.getElementById('battery-badge');
+        const netBadge = document.getElementById('net-badge');
+        const dataSaverBadge = document.getElementById('data-saver-badge');
+
+        const videoElement = document.getElementById('local-video');
+        const videoWrapper = document.getElementById('video-wrapper');
+        const zoneCanvas = document.getElementById('zone-canvas');
+        const remoteAudio = document.getElementById('remote-audio');
+
+        // Datasparkonfiguration
+        let currentMaxBitrate = 200000;
+        let isMotionOnlyStream = false;
+        let isSnapshotMode = false;
+        let snapshotIntervalSec = 3;
+        let isAudioOnly = false;
+        let snapshotTimer = null;
+
+        // PIN-hantering
+        let secretPin = '';
+        let pinTimer = null;
+        const PIN_TIMEOUT_SECONDS = 300; 
+        let pinTimeLeft = PIN_TIMEOUT_SECONDS;
+
+        let localStream = null;
+        let peer = null;
+        let activeCalls = [];
+        let activeDataConns = [];
+        let facingMode = 'environment';
+        let targetFps = 10;
+        let targetHeight = 360;
+
+        function log(msg, type = 'info') {
+            const li = document.createElement('li');
+            li.textContent = `[${new Date().toLocaleTimeString('sv-SE')}] ${msg}`;
+            if (type === 'error') li.className = 'log-error';
+            if (type === 'warn') li.className = 'log-warn';
+            if (type === 'motion') li.className = 'log-motion';
+            if (type === 'status') li.className = 'log-status';
+            debugLog.appendChild(li);
+            debugLog.scrollTop = debugLog.scrollHeight;
+        }
+
+        // --- PIN-hantering ---
+        function generateNewPin() {
+            secretPin = Math.floor(10000 + Math.random() * 90000).toString();
+            pinTimeLeft = PIN_TIMEOUT_SECONDS;
+            updatePinDisplay();
+            generateQR();
+            log(`Ny PIN genererad: ${secretPin}`, 'status');
+        }
+
+        function startPinTimer() {
+            if (pinTimer) clearInterval(pinTimer);
+            pinTimer = setInterval(() => {
+                pinTimeLeft--;
+                if (pinTimeLeft <= 0) generateNewPin();
+                else updatePinDisplay();
+            }, 1000);
+        }
+
+        function updatePinDisplay() {
+            const mins = Math.floor(pinTimeLeft / 60);
+            const secs = pinTimeLeft % 60;
+            const timeStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            pinDisplay.textContent = `PIN: ${secretPin} (${timeStr})`;
+            pinDisplay.style.backgroundColor = (pinTimeLeft <= 30) ? 'var(--danger-color)' : 'var(--accent-user)';
+        }
+
+        document.getElementById('btn-renew-pin').addEventListener('click', generateNewPin);
+
+        // --- QR-Kod ---
+        function generateQR() {
+            const qrContainer = document.getElementById('qrcode');
+            qrContainer.innerHTML = '';
+            const receiverUrl = `${window.location.origin}${window.location.pathname.replace('Anvandare.html', 'Mottagare.html')}?room=${roomId}`;
+            new QRCode(qrContainer, { text: receiverUrl, width: 128, height: 128 });
+        }
+
+        document.getElementById('btn-toggle-qr').addEventListener('click', () => {
+            const container = document.getElementById('qr-container');
+            container.style.display = container.style.display === 'flex' ? 'none' : 'flex';
+        });
+
+        // --- Bitrate-hantering ---
+        function applyBitrateLimit() {
+            activeCalls.forEach(call => {
+                if (!call.peerConnection) return;
+                const senders = call.peerConnection.getSenders();
+                const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+
+                if (videoSender) {
+                    const parameters = videoSender.getParameters();
+                    if (!parameters.encodings) parameters.encodings = [{}];
+
+                    if (currentMaxBitrate > 0) {
+                        parameters.encodings[0].maxBitrate = currentMaxBitrate;
+                    } else {
+                        delete parameters.encodings[0].maxBitrate;
+                    }
+                    videoSender.setParameters(parameters).catch(e => log(`Bitrate-fel: ${e.message}`, 'error'));
+                }
+            });
+        }
+
+        function setVideoTrackEnabled(enabled) {
+            if (!localStream) return;
+            localStream.getVideoTracks().forEach(t => t.enabled = enabled);
+        }
+
+        // --- Snapshot-slinga ---
+        function startSnapshotLoop() {
+            stopSnapshotLoop();
+            if (!isSnapshotMode) return;
+            
+            setVideoTrackEnabled(false);
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            snapshotTimer = setInterval(() => {
+                if (!videoElement.videoWidth || activeDataConns.length === 0) return;
+                canvas.width = 480;
+                canvas.height = 270;
+                ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                
+                const imageData = canvas.toDataURL('image/jpeg', 0.5);
+                activeDataConns.forEach(conn => {
+                    if (conn.open) conn.send({ type: 'snapshot-frame', image: imageData });
+                });
+            }, snapshotIntervalSec * 1000);
+        }
+
+        function stopSnapshotLoop() {
+            if (snapshotTimer) clearInterval(snapshotTimer);
+            snapshotTimer = null;
+        }
+
+        // --- Inställningar ---
+        const settingsModal = document.getElementById('settings-modal');
+        document.getElementById('btn-open-settings').addEventListener('click', () => settingsModal.style.display = 'flex');
+        document.getElementById('btn-close-settings').addEventListener('click', () => {
+            settingsModal.style.display = 'none';
+
+            currentMaxBitrate = parseInt(document.getElementById('bitrate-select').value);
+            isMotionOnlyStream = document.getElementById('chk-motion-only').checked;
+            isSnapshotMode = document.getElementById('chk-snapshot-mode').checked;
+            snapshotIntervalSec = parseInt(document.getElementById('snapshot-interval').value);
+            isAudioOnly = document.getElementById('chk-audio-only').checked;
+            targetHeight = parseInt(document.getElementById('res-select').value);
+            targetFps = parseInt(document.getElementById('fps-select').value);
+
+            if (isAudioOnly) {
+                setVideoTrackEnabled(false);
+                dataSaverBadge.textContent = 'Data: Bara ljud';
+            } else if (isSnapshotMode) {
+                startSnapshotLoop();
+                dataSaverBadge.textContent = 'Data: Snapshots';
+            } else if (isMotionOnlyStream) {
+                setVideoTrackEnabled(false);
+                dataSaverBadge.textContent = 'Data: Rörelseström';
+            } else {
+                stopSnapshotLoop();
+                setVideoTrackEnabled(true);
+                applyBitrateLimit();
+                dataSaverBadge.textContent = currentMaxBitrate > 0 ? `Data: ${currentMaxBitrate/1000}k` : 'Data: Max';
+            }
+            
+            startCamera(); // Starta om kameran med nya upplösnings-/framerate-inställningar
+        });
+
+        // --- Kamera & Mikrofon ---
+        async function startCamera() {
+            try {
+                if (localStream) {
+                    localStream.getTracks().forEach(track => track.stop());
+                }
+
+                log('Initierar kamera och mikrofon...');
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: facingMode,
+                        height: { ideal: targetHeight },
+                        frameRate: { max: targetFps }
+                    },
+                    audio: true
+                });
+
+                videoElement.srcObject = localStream;
+                log('Kamera startad framgångsrikt.', 'status');
+
+                // Om vi har aktiva WebRTC-anrop, ersätt spåren
+                activeCalls.forEach(call => {
+                    const senders = call.peerConnection.getSenders();
+                    localStream.getTracks().forEach(track => {
+                        const sender = senders.find(s => s.track && s.track.kind === track.kind);
+                        if (sender) sender.replaceTrack(track);
+                    });
+                });
+
+            } catch (err) {
+                log(`Kamerafel: ${err.message}. Kontrollera behörigheter!`, 'error');
+                statusBadge.textContent = 'Kamerafel';
+                statusBadge.style.backgroundColor = 'var(--danger-color)';
+            }
+        }
+
+        document.getElementById('btn-toggle-cam').addEventListener('click', () => {
+            facingMode = (facingMode === 'user') ? 'environment' : 'user';
+            log(`Växlar kamera till: ${facingMode}`);
+            startCamera();
+        });
+
+        // --- PeerJS Initiering ---
+        function initPeer() {
+            log(`Kopplar upp mot PeerJS med ID: ${peerId}...`);
+            peer = new Peer(peerId);
+
+            peer.on('open', (id) => {
+                log(`Sändare redo! ID: ${id}`, 'status');
+                statusBadge.textContent = 'Redo';
+                statusBadge.style.backgroundColor = 'var(--success-color)';
+            });
+
+            peer.on('connection', (conn) => {
+                log(`Inkommande dataförfrågan från mottagare...`);
+                activeDataConns.push(conn);
+
+                conn.on('data', (data) => {
+                    if (data && data.type === 'auth') {
+                        if (data.pin === secretPin) {
+                            log('Mottagare angav RÄTT PIN-kod.', 'status');
+                            conn.send({ type: 'auth-result', success: true });
+                        } else {
+                            log(`Felaktig PIN från mottagare: ${data.pin}`, 'warn');
+                            conn.send({ type: 'auth-result', success: false });
+                        }
+                    }
+                });
+
+                conn.on('close', () => {
+                    activeDataConns = activeDataConns.filter(c => c !== conn);
+                });
+            });
+
+            peer.on('call', (call) => {
+                log('Svarar på videoströmsanrop från mottagare...');
+                call.answer(localStream);
+                activeCalls.push(call);
+
+                call.on('stream', (remoteStream) => {
+                    // Om mottagaren skickar ljud tillbaka (t.ex. tvåvägskommunikation)
+                    remoteAudio.srcObject = remoteStream;
+                });
+
+                call.on('close', () => {
+                    log('Mottagare kopplade från.');
+                    activeCalls = activeCalls.filter(c => c !== call);
+                });
+
+                // Verkställ bitrate-begränsning när anslutningen etablerats
+                setTimeout(applyBitrateLimit, 1000);
+            });
+
+            peer.on('error', (err) => {
+                log(`PeerJS Fel: ${err.type} - ${err.message}`, 'error');
+                if (err.type === 'unavailable-id') {
+                    statusBadge.textContent = 'ID Upptagen';
+                    statusBadge.style.backgroundColor = 'var(--danger-color)';
+                    log('ID:t är upptaget. Byt rum via URL-parametern ?room=mittrum', 'warn');
+                } else {
+                    statusBadge.textContent = 'Nätverksfel';
+                    statusBadge.style.backgroundColor = 'var(--danger-color)';
+                }
+            });
+        }
+
+        // --- Batteristatus & Nätverk ---
+        if ('getBattery' in navigator) {
+            navigator.getBattery().then(battery => {
+                const updateBatt = () => batteryBadge.textContent = `Batteri: ${Math.round(battery.level * 100)}%`;
+                updateBatt();
+                battery.addEventListener('levelchange', updateBatt);
+            });
+        }
+
+        window.addEventListener('online', () => netBadge.textContent = 'Nät: Online');
+        window.addEventListener('offline', () => netBadge.textContent = 'Nät: Offline');
+        netBadge.textContent = navigator.onLine ? 'Nät: Online' : 'Nät: Offline';
+
+        // --- Starta allt ---
+        generateNewPin();
+        startPinTimer();
+        startCamera();
+        initPeer();
+    </script>
