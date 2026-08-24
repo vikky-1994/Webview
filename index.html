@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="description" content="Navigeringsportal för videoströmsanslutning">
+    <title>Startsida – Videoströmming</title>
+    
+    <!-- PWA & Favicon -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #161e2e;
+            --card-hover: #1f293d;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-user: #3b82f6;
+            --accent-user-glow: rgba(59, 130, 246, 0.15);
+            --accent-mottagare: #10b981;
+            --accent-mottagare-glow: rgba(16, 185, 129, 0.15);
+            --radius: 16px;
+        }
+
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg-color: #f8fafc;
+                --card-bg: #ffffff;
+                --card-hover: #f1f5f9;
+                --border-color: rgba(0, 0, 0, 0.06);
+                --text-primary: #0f172a;
+                --text-secondary: #64748b;
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 24px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 440px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .header {
+            text-align: center;
+        }
+
+        #network-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .status-online .status-dot { background-color: #10b981; }
+        .status-online { color: #10b981; }
+        .status-offline .status-dot { background-color: #ef4444; }
+        .status-offline { color: #ef4444; }
+
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            margin-bottom: 6px;
+        }
+
+        p.subtitle {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        .nav-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .nav-card {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background-color: var(--card-bg);
+            padding: 20px;
+            border-radius: var(--radius);
+            text-decoration: none;
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .nav-card:hover {
+            background-color: var(--card-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .user-card .card-icon {
+            background-color: var(--accent-user-glow);
+            color: var(--accent-user);
+        }
+
+        .receiver-card .card-icon {
+            background-color: var(--accent-mottagare-glow);
+            color: var(--accent-mottagare);
+        }
+
+        .card-info {
+            flex: 1;
+        }
+
+        .card-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+
+        .card-title {
+            font-size: 1.05rem;
+            font-weight: 600;
+        }
+
+        .shortcut-key {
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background-color: var(--border-color);
+            color: var(--text-secondary);
+        }
+
+        .card-desc {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        .debug-wrapper {
+            background-color: var(--card-bg);
+            border-radius: var(--radius);
+            border: 1px solid var(--border-color);
+            padding: 14px;
+        }
+
+        .debug-header {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .debug-console {
+            background-color: rgba(0, 0, 0, 0.3);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.75rem;
+            padding: 10px;
+            border-radius: 8px;
+            height: 100px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+        }
+
+        .debug-console ul {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .log-error { color: #f87171; }
+        .log-warn { color: #fbbf24; }
+        .log-info { color: #60a5fa; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header class="header">
+            <div id="network-status" class="status-online">
+                <span class="status-dot"></span>
+                <span id="status-text">Online</span>
+            </div>
+            <h1>Videoströmming</h1>
+            <p class="subtitle">Välj navigeringsläge för anslutning</p>
+        </header>
+
+        <main class="nav-grid">
+            <a href="Anvandare.html" id="link-user" class="nav-card user-card">
+                <div class="card-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5-3-5-3v6z"/><rect width="14" height="12" x="2" y="6" rx="2"/></svg>
+                </div>
+                <div class="card-info">
+                    <div class="card-header-row">
+                        <span class="card-title">Användare</span>
+                        <span class="shortcut-key">1</span>
+                    </div>
+                    <span class="card-desc">Sänd och strömma video från denna enhet</span>
+                </div>
+            </a>
+
+            <a href="Mottagare.html" id="link-receiver" class="nav-card receiver-card">
+                <div class="card-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+                </div>
+                <div class="card-info">
+                    <div class="card-header-row">
+                        <span class="card-title">Mottagare</span>
+                        <span class="shortcut-key">2</span>
+                    </div>
+                    <span class="card-desc">Titta på inkommande videoström</span>
+                </div>
+            </a>
+        </main>
+
+        <footer class="debug-wrapper">
+            <div class="debug-header">Systemlogg</div>
+            <div class="debug-console">
+                <ul id="debug-log"></ul>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        // --- 1. System- och Debug-logik ---
+        const debugLog = document.getElementById('debug-log');
+        
+        function logMsg(msg, type = 'info') {
+            const li = document.createElement('li');
+            const time = new Date().toLocaleTimeString('sv-SE');
+            li.textContent = `[${time}] ${msg}`;
+            
+            if (type === 'error') li.className = 'log-error';
+            else if (type === 'warn') li.className = 'log-warn';
+            else li.className = 'log-info';
+            
+            debugLog.appendChild(li);
+            debugLog.parentElement.scrollTop = debugLog.parentElement.scrollHeight;
+        }
+
+        logMsg("System initierat. Kontrollerar stöd...");
+
+        // --- 2. WebRTC & Säkerhetskontroll ---
+        const hasWebRTC = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+        const isSecure = window.isSecureContext || window.location.hostname === 'localhost' || window.location.protocol === 'file:';
+
+        if (!hasWebRTC) logMsg("Kamera-API saknas. Strömning kan misslyckas.", "error");
+        if (!isSecure) logMsg("Körs inte över HTTPS. Kameraåtkomst kan blockeras.", "warn");
+
+        // --- 3. Hantera Nätverksstatus ---
+        const networkStatus = document.getElementById('network-status');
+        const statusText = document.getElementById('status-text');
+        
+        function updateNetworkStatus() {
+            if (navigator.onLine) {
+                statusText.textContent = 'Online';
+                networkStatus.className = 'status-online';
+                logMsg("Nätverksanslutning aktiv.");
+            } else {
+                statusText.textContent = 'Offline';
+                networkStatus.className = 'status-offline';
+                logMsg("Ingen nätverksanslutning.", "error");
+            }
+        }
+        
+        window.addEventListener('online', updateNetworkStatus);
+        window.addEventListener('offline', updateNetworkStatus);
+
+        // --- 4. Tangentbordsgenvägar ---
+        document.addEventListener('keydown', (e) => {
+            if (e.key === '1') {
+                logMsg("Genväg [1] tryckt. Öppnar Sändare...");
+                window.location.href = document.getElementById('link-user').href;
+            } else if (e.key === '2') {
+                logMsg("Genväg [2] tryckt. Öppnar Mottagare...");
+                window.location.href = document.getElementById('link-receiver').href;
+            }
+        });
+
+        // --- 5. Service Worker (PWA) ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(() => logMsg("Service Worker registrerad."))
+                    .catch(err => logMsg(`PWA-registrering misslyckades: ${err.message}`, "warn"));
+            });
+        } else {
+            logMsg("Service Workers stöds inte i denna miljö.", "warn");
+        }
+    </script>
+</body>
+</html>
