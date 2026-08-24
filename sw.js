@@ -1,5 +1,5 @@
-// sw.js - Uppdaterad till v5 med senaste ändringarna
-const CACHE_NAME = 'webview-v5'; 
+// sw.js - Uppdaterad till v6
+const CACHE_NAME = 'webview-v6'; 
 const ASSETS = [
     './',
     './index.html',
@@ -17,7 +17,7 @@ self.addEventListener('install', (event) => {
     self.skipWaiting();
 });
 
-// 2. Ta bort alla gamla cacher (t.ex. webview-v4) vid aktivering
+// 2. Ta bort alla gamla cacher (t.ex. webview-v5) vid aktivering
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys().then((cacheNames) => {
@@ -34,6 +34,24 @@ self.addEventListener('activate', (event) => {
 
 // 3. Hämtningsstrategi: Network-First med offline-fallback
 self.addEventListener('fetch', (event) => {
+    if (event.request.method !== 'GET' || !event.request.url.startsWith('http')) return;
+
+    event.respondWith(
+        fetch(event.request)
+            .then((networkResponse) => {
+                if (networkResponse && networkResponse.status === 200) {
+                    const responseToCache = networkResponse.clone();
+                    caches.open(CACHE_NAME).then((cache) => {
+                        cache.put(event.request, responseToCache);
+                    });
+                }
+                return networkResponse;
+            })
+            .catch(() => {
+                return caches.match(event.request);
+            })
+    );
+});
     if (event.request.method !== 'GET' || !event.request.url.startsWith('http')) return;
 
     event.respondWith(
