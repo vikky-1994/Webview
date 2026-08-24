@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Webbkamera — Sändare</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    background: #0a0a0a; overflow: hidden;
+    font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  #stage {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #000;
+  }
+  #localVideo {
+    max-width: 100%; max-height: 100%;
+    width: auto; height: auto;
+    transform: scaleX(-1);
+  }
+  #localVideo.rear { transform: none; }
+
+  #statusBar {
+    position: fixed; top: 0; left: 0; right: 0;
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px;
+    background: linear-gradient(rgba(0,0,0,0.7), transparent);
+    z-index: 10;
+  }
+  #dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #f0ad4e; flex-shrink: 0;
+    animation: pulse 1s infinite;
+  }
+  #dot.ok { background: #2ecc71; animation: none; box-shadow: 0 0 6px rgba(46,204,113,0.7); }
+  #dot.err { background: #e33; animation: none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+  #statusText { color: #ddd; font-size: 13px; flex: 1; }
+
+  #idBox {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: linear-gradient(transparent, rgba(0,0,0,0.9));
+    padding: 18px 16px 22px;
+    text-align: center;
+  }
+  #idBox .label { color: #888; font-size: 12px; margin-bottom: 4px; }
+  #idBox .id { color: #fff; font-size: 20px; font-weight: 600; letter-spacing: 0.5px; margin-bottom: 10px; }
+  #pwDisplay {
+    color: #2ecc71; font-size: 15px; font-weight: 600; font-family: monospace;
+    background: rgba(46,204,113,0.1); padding: 8px 12px; border-radius: 8px;
+    display: inline-block; margin-bottom: 10px;
+  }
+  .row-btns { display: flex; gap: 8px; justify-content: center; }
+  .action-btn {
+    background: rgba(255,255,255,0.12); border: none; color: #eee;
+    border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer;
+  }
+  .action-btn:active { background: rgba(255,255,255,0.25); }
+
+  #switchBtn {
+    position: fixed; top: 12px; right: 12px; z-index: 10;
+    background: rgba(255,255,255,0.12); border: none; color: #eee;
+    border-radius: 8px; padding: 8px 12px; font-size: 13px;
+  }
+  #settingsBtn {
+    position: fixed; top: 56px; right: 12px; z-index: 10;
+    background: rgba(255,255,255,0.12); border: none; color: #eee;
+    border-radius: 8px; padding: 8px 12px; font-size: 13px;
+  }
+  #err {
+    color: #e33; font-size: 14px; text-align: center; padding: 24px; display: none;
+  }
+
+  #motionBadge {
+    position: fixed; top: 52px; left: 14px; z-index: 10;
+    background: rgba(230,60,60,0.9); color: #fff;
+    font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 20px;
+    display: none; align-items: center; gap: 6px;
+  }
+  #motionBadge.show { display: flex; }
+  #motionBadge .pulse-icon { width: 7px; height: 7px; border-radius: 50%; background: #fff; animation: pulse 0.8s infinite; }
+
+  #settingsPanel {
+    position: fixed; inset: 0; z-index: 20;
+    background: rgba(10,10,10,0.97);
+    display: none; flex-direction: column;
+    padding: 24px 20px; overflow-y: auto;
+  }
+  #settingsPanel.open { display: flex; }
+  #settingsPanel h2 { color: #fff; font-size: 18px; margin: 0 0 18px; }
+  #settingsPanel label { color: #aaa; font-size: 13px; margin-bottom: 6px; display: block; margin-top: 16px; }
+  #settingsPanel label:first-of-type { margin-top: 0; }
+  #settingsPanel select, #settingsPanel input[type=range] {
+    width: 100%; padding: 12px; background: #1c1c1e; border: 1px solid #333;
+    border-radius: 10px; color: #fff; font-size: 15px;
+  }
+  #settingsPanel .rangeRow { display: flex; align-items: center; gap: 10px; }
+  #settingsPanel .rangeRow input[type=range] { flex: 1; padding: 0; }
+  #settingsPanel .rangeVal { color: #fff; font-size: 14px; min-width: 42px; text-align: right; }
+  .toggleRow {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 16px; padding: 12px; background: #1c1c1e; border-radius: 10px;
+  }
+  .toggleRow span { color: #ddd; font-size: 14px; }
+  .switch { position: relative; width: 44px; height: 26px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; inset: 0; background: #444; border-radius: 26px; transition: 0.2s; cursor: pointer;
+  }
+  .slider::before {
+    content: ""; position: absolute; width: 20px; height: 20px; left: 3px; top: 3px;
+    background: #fff; border-radius: 50%; transition: 0.2s;
+  }
+  input:checked + .slider { background: #2ecc71; }
+  input:checked + .slider::before { transform: translateX(18px); }
+  #settingsPanel .hint { color: #777; font-size: 12px; line-height: 1.5; margin-top: 4px; }
+  #closeSettingsBtn {
+    margin-top: 26px; background: #2ecc71; color: #04210f; font-weight: 600;
+    padding: 13px; font-size: 15px; border: none; border-radius: 10px;
+  }
+  #motionCanvas { display: none; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="localVideo" autoplay playsinline muted></video>
+  <div id="err"></div>
+</div>
+
+<div id="statusBar">
+  <div id="dot"></div>
+  <div id="statusText">Startar kamera…</div>
+</div>
+
+<button id="switchBtn">🔄 Byt kamera</button>
+<button id="settingsBtn">⚙︎ Inställningar</button>
+<div id="motionBadge"><span class="pulse-icon"></span> Rörelse upptäckt</div>
+<canvas id="motionCanvas"></canvas>
+
+<div id="idBox">
+  <div class="label">Kamera-ID</div>
+  <div class="id" id="peerIdText">—</div>
+  <div class="label">Lösenord till mottagare</div>
+  <div><span id="pwDisplay">Genererar...</span></div>
+  <div class="row-btns">
+    <button class="action-btn" id="copyBtn">Kopiera ID</button>
+    <button class="action-btn" id="newPwBtn">Nytt lösenord</button>
+  </div>
+</div>
+
+<div id="settingsPanel">
+  <h2>Kamerainställningar</h2>
+
+  <label for="qualitySelect">Bildkvalitet (upplösning)</label>
+  <select id="qualitySelect">
+    <option value="240">Låg — 320×240 (minst data)</option>
+    <option value="360" selected>Medium — 480×360</option>
+    <option value="480">Hög — 640×480</option>
+    <option value="720">Väldigt hög — 1280×720 (mest data)</option>
+  </select>
+
+  <label for="fpsRange">Bildfrekvens (FPS)</label>
+  <div class="rangeRow">
+    <input type="range" id="fpsRange" min="2" max="20" step="1" value="8">
+    <span class="rangeVal" id="fpsVal">8</span>
+  </div>
+  <p class="hint">Lägre FPS sparar dataförbrukning.</p>
+
+  <div class="toggleRow">
+    <span>Rörelsedetektering</span>
+    <label class="switch">
+      <input type="checkbox" id="motionToggle">
+      <span class="slider"></span>
+    </label>
+  </div>
+  <p class="hint">Visar en indikator och spelar ett kort ljud lokalt när rörelse upptäcks i bilden.</p>
+
+  <div class="toggleRow" id="motionSensRow" style="display:none;">
+    <span>Känslighet</span>
+    <select id="motionSensitivity" style="width:auto;padding:8px 12px;">
+      <option value="low">Låg</option>
+      <option value="medium" selected>Medium</option>
+      <option value="high">Hög</option>
+    </select>
+  </div>
+
+  <button id="closeSettingsBtn">Klar</button>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(function () {
+  const CAMERA_ID = 'webbkamera-1';
+
+  function generateRandomPassword() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    let result = '';
+    for (let i = 0; i < 6; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  }
+
+  let currentPassword = localStorage.getItem('wk_sender_pw');
+  if (!currentPassword) {
+    currentPassword = generateRandomPassword();
+    localStorage.setItem('wk_sender_pw', currentPassword);
+  }
+
+  const pwDisplay = document.getElementById('pwDisplay');
+  const newPwBtn = document.getElementById('newPwBtn');
+  pwDisplay.textContent = currentPassword;
+
+  function broadcastPassword() {
+    dataConns.forEach(c => {
+      try { c.send({ type: 'password', password: currentPassword }); } catch (e) {}
+    });
+  }
+
+  newPwBtn.addEventListener('click', () => {
+    currentPassword = generateRandomPassword();
+    localStorage.setItem('wk_sender_pw', currentPassword);
+    pwDisplay.textContent = currentPassword;
+    broadcastPassword();
+    newPwBtn.textContent = 'Nytt skapat ✓';
+    setTimeout(() => newPwBtn.textContent = 'Nytt lösenord', 1500);
+  });
+
+  const video = document.getElementById('localVideo');
+  const dot = document.getElementById('dot');
+  const statusText = document.getElementById('statusText');
+  const peerIdText = document.getElementById('peerIdText');
+  const errBox = document.getElementById('err');
+  const switchBtn = document.getElementById('switchBtn');
+  const copyBtn = document.getElementById('copyBtn');
+  const settingsBtn = document.getElementById('settingsBtn');
+  const settingsPanel = document.getElementById('settingsPanel');
+  const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+  const qualitySelect = document.getElementById('qualitySelect');
+  const fpsRange = document.getElementById('fpsRange');
+  const fpsVal = document.getElementById('fpsVal');
+  const motionToggle = document.getElementById('motionToggle');
+  const motionSensRow = document.getElementById('motionSensRow');
+  const motionSensitivity = document.getElementById('motionSensitivity');
+  const motionBadge = document.getElementById('motionBadge');
+  const motionCanvas = document.getElementById('motionCanvas');
+  const motionCtx = motionCanvas.getContext('2d', { willReadFrequently: true });
+
+  let localStream = null;
+  let peer = null;
+  let currentFacing = 'environment';
+  let wakeLock = null;
+  let dataConns = [];
+
+  const RES_MAP = {
+    '240': { width: 320, height: 240 },
+    '360': { width: 480, height: 360 },
+    '480': { width: 640, height: 480 },
+    '720': { width: 1280, height: 720 }
+  };
+
+  function loadSettings() {
+    try { return JSON.parse(localStorage.getItem('wk_cam_settings') || '{}'); }
+    catch (e) { return {}; }
+  }
+  function saveSettings(s) {
+    localStorage.setItem('wk_cam_settings', JSON.stringify(s));
+  }
+  let settings = Object.assign({ quality: '360', fps: 8, motion: false, sensitivity: 'medium' }, loadSettings());
+
+  qualitySelect.value = settings.quality;
+  fpsRange.value = settings.fps;
+  fpsVal.textContent = settings.fps;
+  motionToggle.checked = settings.motion;
+  motionSensitivity.value = settings.sensitivity;
+  motionSensRow.style.display = settings.motion ? 'flex' : 'none';
+
+  function setStatus(state, text) {
+    dot.className = state;
+    statusText.textContent = text;
+  }
+
+  async function startCamera(facing) {
+    if (localStream) {
+      localStream.getTracks().forEach(t => t.stop());
+    }
+    const res = RES_MAP[settings.quality] || RES_MAP['360'];
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: facing,
+          width: { ideal: res.width },
+          height: { ideal: res.height },
+          frameRate: { ideal: Number(settings.fps), max: Math.max(Number(settings.fps), 12) }
+        },
+        audio: false
+      });
+      video.srcObject = localStream;
+      video.classList.toggle('rear', facing === 'environment');
+      errBox.style.display = 'none';
+
+      if (peer && peer.connections) {
+        Object.values(peer.connections).flat().forEach(conn => {
+          if (conn.peerConnection) {
+            const sender = conn.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+            if (sender) sender.replaceTrack(localStream.getVideoTracks()[0]);
+          }
+        });
+      }
+      startMotionDetection();
+    } catch (e) {
+      errBox.style.display = 'block';
+      errBox.textContent = 'Kunde inte starta kameran: ' + e.message + '. Kontrollera kameratillstånd.';
+      setStatus('err', 'Kamerafel');
+    }
+  }
+
+  async function applyFpsLive() {
+    if (!localStream) return;
+    const track = localStream.getVideoTracks()[0];
+    if (!track) return;
+    try {
+      await track.applyConstraints({ frameRate: { ideal: Number(settings.fps), max: Math.max(Number(settings.fps), 12) } });
+    } catch (e) {}
+  }
+
+  settingsBtn.addEventListener('click', () => settingsPanel.classList.add('open'));
+  closeSettingsBtn.addEventListener('click', () => settingsPanel.classList.remove('open'));
+
+  qualitySelect.addEventListener('change', () => {
+    settings.quality = qualitySelect.value;
+    saveSettings(settings);
+    startCamera(currentFacing);
+  });
+
+  fpsRange.addEventListener('input', () => { fpsVal.textContent = fpsRange.value; });
+  fpsRange.addEventListener('change', () => {
+    settings.fps = Number(fpsRange.value);
+    saveSettings(settings);
+    applyFpsLive();
+  });
+
+  motionToggle.addEventListener('change', () => {
+    settings.motion = motionToggle.checked;
+    saveSettings(settings);
+    motionSensRow.style.display = settings.motion ? 'flex' : 'none';
+    if (settings.motion) startMotionDetection(); else stopMotionDetection();
+  });
+
+  motionSensitivity.addEventListener('change', () => {
+    settings.sensitivity = motionSensitivity.value;
+    saveSettings(settings);
+  });
+
+  const SENS_THRESHOLD = { low: 45, medium: 25, high: 12 };
+  let motionTimer = null;
+  let prevFrame = null;
+  let motionActiveUntil = 0;
+  const beepCtx = (window.AudioContext || window.webkitAudioContext) ? new (window.AudioContext || window.webkitAudioContext)() : null;
+
+  function playBeep() {
+    if (!beepCtx) return;
+    try {
+      const osc = beepCtx.createOscillator();
+      const gain = beepCtx.createGain();
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.15, beepCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, beepCtx.currentTime + 0.25);
+      osc.connect(gain).connect(beepCtx.destination);
+      osc.start();
+      osc.stop(beepCtx.currentTime + 0.25);
+    } catch (e) {}
+  }
+
+  function stopMotionDetection() {
+    if (motionTimer) { clearInterval(motionTimer); motionTimer = null; }
+    prevFrame = null;
+    motionBadge.classList.remove('show');
+  }
+
+  function startMotionDetection() {
+    stopMotionDetection();
+    if (!settings.motion) return;
+    const W = 64, H = 48;
+    motionCanvas.width = W;
+    motionCanvas.height = H;
+
+    motionTimer = setInterval(() => {
+      if (!video.videoWidth) return;
+      motionCtx.drawImage(video, 0, 0, W, H);
+      let frame;
+      try { frame = motionCtx.getImageData(0, 0, W, H).data; }
+      catch (e) { return; }
+
+      if (prevFrame) {
+        let diffSum = 0;
+        for (let i = 0; i < frame.length; i += 4) {
+          diffSum += Math.abs(frame[i] - prevFrame[i]);
+        }
+        const avgDiff = diffSum / (frame.length / 4);
+        const threshold = SENS_THRESHOLD[settings.sensitivity] || SENS_THRESHOLD.medium;
+
+        if (avgDiff > threshold) {
+          motionActiveUntil = Date.now() + 2500;
+          if (!motionBadge.classList.contains('show')) {
+            playBeep();
+            dataConns.forEach(c => { try { c.send({ type: 'motion' }); } catch (e) {} });
+          }
+          motionBadge.classList.add('show');
+        } else if (Date.now() > motionActiveUntil) {
+          motionBadge.classList.remove('show');
+        }
+      }
+      prevFrame = frame;
+    }, 400);
+  }
+
+  switchBtn.addEventListener('click', () => {
+    currentFacing = currentFacing === 'environment' ? 'user' : 'environment';
+    startCamera(currentFacing);
+  });
+
+  copyBtn.addEventListener('click', () => {
+    navigator.clipboard.writeText(CAMERA_ID).then(() => {
+      copyBtn.textContent = 'Kopierat ✓';
+      setTimeout(() => copyBtn.textContent = 'Kopiera ID', 1500);
+    }).catch(() => {});
+  });
+
+  function initPeer() {
+    setStatus('connecting', 'Ansluter till server…');
+    peer = new Peer(CAMERA_ID, { debug: 0 });
+
+    peer.on('open', (id) => {
+      peerIdText.textContent = id;
+      setStatus('connecting', 'Redo — väntar på mottagare…');
+    });
+
+    peer.on('call', (call) => {
+      // Svara på samtalet med den lokala strömmen
+      call.answer(localStream);
+      setStatus('ok', 'Ansluten — sänder live');
+      call.on('close', () => setStatus('connecting', 'Frånkopplad — väntar på ny anslutning…'));
+      call.on('error', () => setStatus('connecting', 'Frånkopplad — väntar på ny anslutning…'));
+    });
+
+    peer.on('connection', (conn) => {
+      dataConns.push(conn);
+      
+      conn.on('data', (data) => {
+        if (data && data.type === 'get_password') {
+          try { conn.send({ type: 'password', password: currentPassword }); } catch(e) {}
+        }
+      });
+
+      // Skicka även lösenord direkt som säkerhetsåtgärd
+      setTimeout(() => {
+        try { conn.send({ type: 'password', password: currentPassword }); } catch(e) {}
+      }, 500);
+
+      conn.on('close', () => { dataConns = dataConns.filter(c => c !== conn); });
+      conn.on('error', () => { dataConns = dataConns.filter(c => c !== conn); });
+    });
+
+    peer.on('disconnected', () => {
+      setStatus('err', 'Tappade kontakt — återansluter…');
+      setTimeout(() => { if (peer && !peer.destroyed) peer.reconnect(); }, 2000);
+    });
+
+    peer.on('error', (err) => {
+      if (err.type === 'unavailable-id') {
+        setStatus('err', 'ID:t är redan upptaget i en annan flik.');
+      } else {
+        setStatus('err', 'Anslutningsfel: ' + err.type);
+        setTimeout(initPeer, 3000);
+      }
+    });
+  }
+
+  async function requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+    } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible') await requestWakeLock();
+  });
+
+  (async function init() {
+    await startCamera(currentFacing);
+    requestWakeLock();
+    initPeer();
+  })();
+})();
+</script>
+
+</body>
+</html>

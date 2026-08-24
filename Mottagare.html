@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Webbkamera — Mottagare</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    background: #0a0a0a; overflow: hidden;
+    font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  #stage {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #000;
+  }
+  #stream {
+    max-width: 100%; max-height: 100%;
+    width: auto; height: auto;
+    display: none;
+  }
+  #placeholder {
+    color: #666; text-align: center; padding: 24px;
+    font-size: 15px; line-height: 1.6;
+  }
+  #placeholder .icon { font-size: 42px; display: block; margin-bottom: 12px; }
+
+  #statusBar {
+    position: fixed; top: 0; left: 0; right: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; gap: 10px;
+    background: linear-gradient(rgba(0,0,0,0.65), transparent);
+    z-index: 10; transition: opacity 0.3s;
+  }
+  #dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #e33; flex-shrink: 0;
+    box-shadow: 0 0 6px rgba(255,0,0,0.7);
+  }
+  #dot.ok { background: #2ecc71; box-shadow: 0 0 6px rgba(46,204,113,0.7); }
+  #dot.connecting { background: #f0ad4e; box-shadow: 0 0 6px rgba(240,173,78,0.7); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+  #motionAlert {
+    position: fixed; top: 52px; left: 14px; z-index: 15;
+    background: rgba(230,60,60,0.92); color: #fff;
+    font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 20px;
+    display: none; align-items: center; gap: 6px;
+  }
+  #motionAlert.show { display: flex; }
+  #motionAlert .pulse-icon { width: 7px; height: 7px; border-radius: 50%; background: #fff; animation: pulse 0.8s infinite; }
+
+  #statusText { color: #ddd; font-size: 13px; flex: 1; }
+  #statusRight { display: flex; gap: 8px; }
+  .btn {
+    background: rgba(255,255,255,0.12); border: none; color: #eee;
+    border-radius: 8px; padding: 7px 11px; font-size: 13px;
+    display: flex; align-items: center; gap: 4px;
+    cursor: pointer;
+  }
+  .btn:active { background: rgba(255,255,255,0.25); }
+
+  #setupPanel {
+    position: fixed; inset: 0; z-index: 20;
+    background: rgba(10,10,10,0.97);
+    display: none; flex-direction: column;
+    padding: 24px 20px; overflow-y: auto;
+  }
+  #setupPanel.open { display: flex; }
+  #setupPanel h2 { color: #fff; font-size: 18px; margin: 0 0 4px; }
+  #setupPanel p.hint { color: #888; font-size: 13px; margin: 0 0 20px; line-height: 1.5; }
+  label { color: #aaa; font-size: 13px; margin-bottom: 6px; display: block; }
+  input[type=text] {
+    width: 100%; padding: 12px; margin-bottom: 14px;
+    background: #1c1c1e; border: 1px solid #333; border-radius: 10px;
+    color: #fff; font-size: 15px;
+  }
+  select {
+    width: 100%; padding: 12px; margin-bottom: 14px;
+    background: #1c1c1e; border: 1px solid #333; border-radius: 10px;
+    color: #fff; font-size: 15px;
+  }
+  .row { display: flex; gap: 10px; margin-top: 6px; }
+  .row .btn { flex: 1; justify-content: center; padding: 13px; font-size: 15px; }
+  #saveBtn { background: #2ecc71; color: #04210f; font-weight: 600; }
+  #cancelBtn { background: rgba(255,255,255,0.1); }
+  .savedList { margin-top: 4px; }
+  .savedItem {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 12px; background: #1c1c1e; border-radius: 10px;
+    margin-bottom: 8px; color: #ddd; font-size: 14px;
+  }
+  .savedItem span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .savedItem button { background: none; border: none; color: #e33; font-size: 13px; padding: 4px 8px; cursor: pointer; }
+
+  #tapHint {
+    position: fixed; bottom: 18px; left: 0; right: 0;
+    text-align: center; color: #555; font-size: 12px;
+    z-index: 5; pointer-events: none;
+  }
+
+  #lockScreen {
+    position: fixed; inset: 0; z-index: 50;
+    background: #0a0a0a;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  #lockScreen.hidden { display: none; }
+  #lockBox {
+    width: 100%; max-width: 320px;
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center;
+  }
+  #lockBox .icon { font-size: 40px; margin-bottom: 10px; }
+  #lockBox h2 { color: #fff; font-size: 18px; margin: 0 0 16px; }
+  #pwInput {
+    width: 100%; padding: 14px; margin-bottom: 12px;
+    background: #1c1c1e; border: 1px solid #333; border-radius: 10px;
+    color: #fff; font-size: 16px; text-align: center;
+  }
+  #unlockBtn {
+    width: 100%; background: #2ecc71; color: #04210f; font-weight: 600;
+    padding: 13px; font-size: 15px; justify-content: center;
+  }
+  #pwError {
+    color: #e33; font-size: 13px; margin-top: 12px;
+    display: none;
+  }
+  #pwError.show { display: block; }
+</style>
+</head>
+<body>
+
+<div id="lockScreen">
+  <div id="lockBox">
+    <span class="icon">🔒</span>
+    <h2>Webbkamera</h2>
+    <input type="password" id="pwInput" placeholder="Slå in lösenord från sändaren" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <button class="btn" id="unlockBtn">Lås upp</button>
+    <div id="pwError">Fel lösenord</div>
+  </div>
+</div>
+
+<div id="stage">
+  <video id="rtcVideo" autoplay playsinline style="max-width:100%;max-height:100%;width:auto;height:auto;display:none;"></video>
+  <img id="stream" alt="Kameraström">
+  <div id="placeholder">
+    <span class="icon">📷</span>
+    Ingen kamera inställd.<br>Tryck på inställningar för att ansluta.
+  </div>
+</div>
+
+<div id="motionAlert"><span class="pulse-icon"></span> Rörelse upptäckt</div>
+
+<div id="statusBar">
+  <div id="dot"></div>
+  <div id="statusText">Ej ansluten</div>
+  <div id="statusRight">
+    <button class="btn" id="fullscreenBtn">⛶</button>
+    <button class="btn" id="settingsBtn">⚙︎</button>
+  </div>
+</div>
+
+<div id="tapHint">Tryck på skärmen för att visa/dölja menyn</div>
+
+<div id="setupPanel">
+  <h2>Kamerainställning</h2>
+  <label for="modeSelect">Anslutningstyp</label>
+  <select id="modeSelect">
+    <option value="rtc">Webbkamera-app (öppna Anvandare.html på sändande enhet)</option>
+    <option value="ip">IP-kamera-app (t.ex. IP Webcam)</option>
+  </select>
+
+  <div id="rtcFields">
+    <p class="hint">Öppna <code>Anvandare.html</code> på sändande enhet och ange ID:t som visas där.</p>
+    <label for="peerIdInput">Kamera-ID</label>
+    <input type="text" id="peerIdInput" placeholder="t.ex. webbkamera-1" autocapitalize="off" autocorrect="off" spellcheck="false">
+  </div>
+
+  <div id="ipFields" style="display:none;">
+    <p class="hint">Ange adressen till din IP-kamera-app.</p>
+    <label for="urlInput">Kamera-URL, IP:port eller Tailscale-adress</label>
+    <input type="text" id="urlInput" placeholder="192.168.43.1:8080" autocapitalize="off" autocorrect="off" spellcheck="false">
+
+    <label for="pathSelect">Strömtyp</label>
+    <select id="pathSelect">
+      <option value="/video">/video (IP Webcam MJPEG)</option>
+      <option value="/videofeed">/videofeed</option>
+      <option value="/shot.jpg?rand=">/shot.jpg (stillbild, pollas)</option>
+      <option value="">Ingen — hela URL:en anger jag själv ovan</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <button class="btn" id="cancelBtn">Avbryt</button>
+    <button class="btn" id="saveBtn">Anslutning</button>
+  </div>
+
+  <div style="margin-top:22px;">
+    <label>Sparade kameror</label>
+    <div class="savedList" id="savedList"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(function () {
+  let expectedPassword = localStorage.getItem('wk_expected_pw') || '';
+
+  const lockScreen = document.getElementById('lockScreen');
+  const pwInput = document.getElementById('pwInput');
+  const pwError = document.getElementById('pwError');
+  const unlockBtn = document.getElementById('unlockBtn');
+
+  function tryUnlock() {
+    const inputVal = pwInput.value.trim();
+    if (!expectedPassword && inputVal) {
+      expectedPassword = inputVal;
+      localStorage.setItem('wk_expected_pw', expectedPassword);
+    }
+    if (inputVal === expectedPassword || (!expectedPassword && !inputVal)) {
+      sessionStorage.setItem('wk_unlocked', '1');
+      lockScreen.classList.add('hidden');
+      requestWakeLockSafe();
+    } else {
+      pwError.classList.add('show');
+      pwInput.value = '';
+      pwInput.focus();
+    }
+  }
+  unlockBtn.addEventListener('click', tryUnlock);
+  pwInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryUnlock(); });
+
+  if (sessionStorage.getItem('wk_unlocked') === '1') {
+    lockScreen.classList.add('hidden');
+  } else {
+    setTimeout(() => pwInput.focus(), 200);
+  }
+
+  function requestWakeLockSafe() {
+    if (typeof requestWakeLock === 'function') requestWakeLock();
+  }
+
+  const streamImg = document.getElementById('stream');
+  const rtcVideo = document.getElementById('rtcVideo');
+  const placeholder = document.getElementById('placeholder');
+  const dot = document.getElementById('dot');
+  const statusText = document.getElementById('statusText');
+  const statusBar = document.getElementById('statusBar');
+  const setupPanel = document.getElementById('setupPanel');
+  const urlInput = document.getElementById('urlInput');
+  const pathSelect = document.getElementById('pathSelect');
+  const savedList = document.getElementById('savedList');
+  const tapHint = document.getElementById('tapHint');
+  const modeSelect = document.getElementById('modeSelect');
+  const rtcFields = document.getElementById('rtcFields');
+  const ipFields = document.getElementById('ipFields');
+  const peerIdInput = document.getElementById('peerIdInput');
+  const motionAlert = document.getElementById('motionAlert');
+
+  const alertCtx = (window.AudioContext || window.webkitAudioContext) ? new (window.AudioContext || window.webkitAudioContext)() : null;
+  function playAlertBeep() {
+    if (!alertCtx) return;
+    try {
+      const osc = alertCtx.createOscillator();
+      const gain = alertCtx.createGain();
+      osc.frequency.value = 660;
+      gain.gain.setValueAtTime(0.15, alertCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, alertCtx.currentTime + 0.3);
+      osc.connect(gain).connect(alertCtx.destination);
+      osc.start();
+      osc.stop(alertCtx.currentTime + 0.3);
+    } catch (e) {}
+  }
+
+  let motionAlertTimer = null;
+  function showMotionAlert() {
+    motionAlert.classList.add('show');
+    playAlertBeep();
+    if (motionAlertTimer) clearTimeout(motionAlertTimer);
+    motionAlertTimer = setTimeout(() => motionAlert.classList.remove('show'), 3000);
+  }
+
+  let dataConn = null;
+
+  modeSelect.addEventListener('change', () => {
+    rtcFields.style.display = modeSelect.value === 'rtc' ? 'block' : 'none';
+    ipFields.style.display = modeSelect.value === 'ip' ? 'block' : 'none';
+  });
+
+  let viewerPeer = null;
+  let activeCall = null;
+  let rtcReconnectTimer = null;
+
+  function stopRtc() {
+    if (rtcReconnectTimer) { clearTimeout(rtcReconnectTimer); rtcReconnectTimer = null; }
+    if (activeCall) { activeCall.close(); activeCall = null; }
+    if (dataConn) { dataConn.close(); dataConn = null; }
+    if (viewerPeer) { viewerPeer.destroy(); viewerPeer = null; }
+    rtcVideo.style.display = 'none';
+    rtcVideo.srcObject = null;
+    motionAlert.classList.remove('show');
+  }
+
+  function startRtc(cameraId) {
+    stopPolling();
+    if (rtcReconnectTimer) { clearTimeout(rtcReconnectTimer); rtcReconnectTimer = null; }
+    currentBaseUrl = 'rtc:' + cameraId;
+    localStorage.setItem('wk_current_url', currentBaseUrl);
+    streamImg.style.display = 'none';
+    setStatus('connecting', 'Ansluter till ' + cameraId + '…');
+
+    if (viewerPeer) { viewerPeer.destroy(); }
+    
+    // Använd standard PeerJS inställningar för stabil anslutning
+    viewerPeer = new Peer(undefined, { debug: 0 });
+
+    viewerPeer.on('open', () => {
+      // 1. Skapa datakanal för instruktioner/larm
+      dataConn = viewerPeer.connect(cameraId, { reliable: true });
+      
+      dataConn.on('open', () => {
+        // Skicka förfrågan om nuvarande lösenord
+        dataConn.send({ type: 'get_password' });
+      });
+
+      dataConn.on('data', (msg) => {
+        if (msg && msg.type === 'motion') {
+          showMotionAlert();
+        } else if (msg && msg.type === 'password') {
+          expectedPassword = msg.password;
+          localStorage.setItem('wk_expected_pw', expectedPassword);
+        }
+      });
+
+      // 2. Koppla samtal utan dummy-stream (MediaConnection)
+      activeCall = viewerPeer.call(cameraId, null);
+
+      if (!activeCall) {
+        setStatus('', 'Kunde inte ringa upp kameran');
+        scheduleRtcReconnect(cameraId);
+        return;
+      }
+
+      activeCall.on('stream', (remoteStream) => {
+        rtcVideo.srcObject = remoteStream;
+        rtcVideo.style.display = 'block';
+        placeholder.style.display = 'none';
+        setStatus('ok', 'Live · ' + cameraId);
+      });
+
+      activeCall.on('close', () => {
+        setStatus('', 'Frånkopplad — försöker igen…');
+        scheduleRtcReconnect(cameraId);
+      });
+
+      activeCall.on('error', () => {
+        setStatus('', 'Frånkopplad — försöker igen…');
+        scheduleRtcReconnect(cameraId);
+      });
+    });
+
+    viewerPeer.on('error', (err) => {
+      setStatus('', 'Anslutningsfel (' + err.type + ') — försöker igen…');
+      scheduleRtcReconnect(cameraId);
+    });
+
+    viewerPeer.on('disconnected', () => {
+      scheduleRtcReconnect(cameraId);
+    });
+  }
+
+  function scheduleRtcReconnect(cameraId) {
+    if (rtcReconnectTimer) return;
+    rtcReconnectTimer = setTimeout(() => {
+      rtcReconnectTimer = null;
+      startRtc(cameraId);
+    }, 3000);
+  }
+
+  let currentBaseUrl = localStorage.getItem('wk_current_url') || '';
+  const DEFAULT_CAMERAS = ['rtc:webbkamera-1'];
+  if (!localStorage.getItem('wk_saved')) {
+    localStorage.setItem('wk_saved', JSON.stringify(DEFAULT_CAMERAS));
+  }
+  if (!currentBaseUrl) {
+    currentBaseUrl = DEFAULT_CAMERAS[0];
+    localStorage.setItem('wk_current_url', currentBaseUrl);
+  }
+  let reconnectTimer = null;
+  let reconnectDelay = 2000;
+  let isPollingSnapshot = false;
+  let pollTimer = null;
+  let barVisible = true;
+
+  function buildFullUrl(base) {
+    if (!/^https?:\/\//i.test(base)) base = 'http://' + base;
+    return base;
+  }
+
+  function connectionLabel(base) {
+    const host = base.replace(/^https?:\/\//i, '').split(':')[0].split('/')[0];
+    const isLocal = /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\.|^169\.254\./.test(host);
+    const isTailscale = /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host) || host.includes('.ts.net');
+    if (isTailscale) return 'Live (Tailscale)';
+    if (isLocal) return 'Live (lokalt nätverk)';
+    return 'Live';
+  }
+
+  function setStatus(state, text) {
+    dot.className = state;
+    statusText.textContent = text;
+  }
+
+  function showStream() {
+    streamImg.style.display = 'block';
+    placeholder.style.display = 'none';
+  }
+  function showPlaceholder() {
+    streamImg.style.display = 'none';
+    placeholder.style.display = 'block';
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+    isPollingSnapshot = false;
+  }
+
+  function startStream(base) {
+    if (base && base.startsWith('rtc:')) {
+      stopPolling();
+      startRtc(base.slice(4));
+      return;
+    }
+    stopRtc();
+    stopPolling();
+    if (!base) { showPlaceholder(); setStatus('', 'Ej ansluten'); return; }
+
+    currentBaseUrl = base;
+    localStorage.setItem('wk_current_url', base);
+    const fullUrl = buildFullUrl(base);
+    setStatus('connecting', 'Ansluter…');
+
+    const isSnapshotMode = fullUrl.includes('shot.jpg');
+
+    if (isSnapshotMode) {
+      isPollingSnapshot = true;
+      pollSnapshot(fullUrl);
+    } else {
+      streamImg.onload = () => {
+        showStream();
+        setStatus('ok', (connectionLabel(base)) + ' · ' + base.replace(/^https?:\/\//i, ''));
+        reconnectDelay = 2000;
+      };
+      streamImg.onerror = () => {
+        setStatus('', 'Frånkopplad — försöker igen…');
+        scheduleReconnect(fullUrl);
+      };
+      streamImg.src = fullUrl + (fullUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
+    }
+  }
+
+  function pollSnapshot(baseUrl) {
+    if (!isPollingSnapshot) return;
+    const testImg = new Image();
+    testImg.onload = () => {
+      streamImg.src = testImg.src;
+      showStream();
+      setStatus('ok', connectionLabel(currentBaseUrl) + ' (stillbild) · ' + currentBaseUrl.replace(/^https?:\/\//i, ''));
+      reconnectDelay = 2000;
+      pollTimer = setTimeout(() => pollSnapshot(baseUrl), 1000);
+    };
+    testImg.onerror = () => {
+      setStatus('', 'Frånkopplad — försöker igen…');
+      pollTimer = setTimeout(() => pollSnapshot(baseUrl), Math.min(reconnectDelay, 8000));
+      reconnectDelay = Math.min(reconnectDelay * 1.4, 8000);
+    };
+    testImg.src = baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'r=' + Date.now();
+  }
+
+  function scheduleReconnect(fullUrl) {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => {
+      reconnectDelay = Math.min(reconnectDelay * 1.4, 10000);
+      streamImg.src = fullUrl + (fullUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
+    }, reconnectDelay);
+  }
+
+  function getSaved() {
+    try { return JSON.parse(localStorage.getItem('wk_saved') || '[]'); }
+    catch (e) { return []; }
+  }
+  function setSaved(list) {
+    localStorage.setItem('wk_saved', JSON.stringify(list));
+  }
+  function renderSavedList() {
+    const list = getSaved();
+    savedList.innerHTML = '';
+    if (!list.length) {
+      savedList.innerHTML = '<div style="color:#555;font-size:13px;">Inga sparade kameror än.</div>';
+      return;
+    }
+    list.forEach((item, idx) => {
+      const row = document.createElement('div');
+      row.className = 'savedItem';
+      const span = document.createElement('span');
+      span.textContent = item.startsWith('rtc:') ? ('📱 ' + item.slice(4)) : item;
+      span.style.flex = '1';
+      row.appendChild(span);
+
+      const connectBtn = document.createElement('button');
+      connectBtn.textContent = 'Anslut';
+      connectBtn.style.color = '#2ecc71';
+      connectBtn.onclick = () => { closeSetup(); startStream(item); };
+      row.appendChild(connectBtn);
+
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Ta bort';
+      delBtn.onclick = () => {
+        const l = getSaved(); l.splice(idx, 1); setSaved(l); renderSavedList();
+      };
+      row.appendChild(delBtn);
+      savedList.appendChild(row);
+    });
+  }
+
+  function openSetup() {
+    setupPanel.classList.add('open');
+    renderSavedList();
+    if (currentBaseUrl && currentBaseUrl.startsWith('rtc:')) {
+      modeSelect.value = 'rtc';
+      peerIdInput.value = currentBaseUrl.slice(4);
+    } else if (currentBaseUrl) {
+      modeSelect.value = 'ip';
+      urlInput.value = currentBaseUrl;
+    }
+    rtcFields.style.display = modeSelect.value === 'rtc' ? 'block' : 'none';
+    ipFields.style.display = modeSelect.value === 'ip' ? 'block' : 'none';
+  }
+  function closeSetup() { setupPanel.classList.remove('open'); }
+
+  document.getElementById('settingsBtn').addEventListener('click', openSetup);
+  document.getElementById('cancelBtn').addEventListener('click', closeSetup);
+  document.getElementById('saveBtn').addEventListener('click', () => {
+    let val;
+    if (modeSelect.value === 'rtc') {
+      const id = peerIdInput.value.trim();
+      if (!id) return;
+      val = 'rtc:' + id;
+    } else {
+      val = urlInput.value.trim();
+      if (!val) return;
+      const suffix = pathSelect.value;
+      if (suffix && !val.includes('/video') && !val.includes('shot.jpg')) {
+        val = val.replace(/\/$/, '') + suffix;
+      }
+    }
+    const list = getSaved();
+    if (!list.includes(val)) { list.unshift(val); setSaved(list.slice(0, 8)); }
+    closeSetup();
+    startStream(val);
+  });
+
+  document.getElementById('fullscreenBtn').addEventListener('click', () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  });
+
+  document.getElementById('stage').addEventListener('click', () => {
+    barVisible = !barVisible;
+    statusBar.style.opacity = barVisible ? '1' : '0';
+    tapHint.style.opacity = barVisible ? '1' : '0';
+  });
+
+  setTimeout(() => { tapHint.style.transition = 'opacity 0.6s'; tapHint.style.opacity = '0'; }, 4000);
+
+  let wakeLock = null;
+  async function requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLock = await navigator.wakeLock.request('screen');
+      }
+    } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible') await requestWakeLock();
+  });
+  requestWakeLock();
+
+  renderSavedList();
+  if (currentBaseUrl) {
+    startStream(currentBaseUrl);
+  } else {
+    openSetup();
+  }
+})();
+</script>
+
+</body>
+</html>
